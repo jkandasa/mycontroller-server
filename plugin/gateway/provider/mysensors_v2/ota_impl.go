@@ -196,15 +196,21 @@ func hexByteToLocalFormat(typeID, versionID uint16, hexByte []byte, blockSize in
 	hexString = strings.ReplaceAll(hexString, "\r", "") // remove all "\r" char
 	hexLines := strings.Split(hexString, "\n")          // split as separate lines
 
+	start := int64(0)
+	end := int64(0)
+	pos := int64(0)
 	actualData := make([]byte, 0)
+
 	for index, line := range hexLines {
 		line = strings.TrimSpace(line) // remove spaces if any
 		if len(line) == 0 {
 			continue
 		}
 		// first char of the line should be ':'
+		// otherwise skip that line
 		if line[0] != ':' {
-			return nil, fmt.Errorf("hex line not started with the char ':', line number:%d, data:%s", index+1, line)
+			zap.L().Debug("hex line not started with the char ':'", zap.Int("lineNumber", index+1), zap.String("data", line))
+			continue
 		}
 
 		// we are not going to use byte count, address and checksum
@@ -212,8 +218,23 @@ func hexByteToLocalFormat(typeID, versionID uint16, hexByte []byte, blockSize in
 		// byte count => line[1:3]
 		// address => line[3:7]
 
+		dataLength, err := strconv.ParseInt(line[1:3], 16, 64)
+		if err != nil {
+			zap.L().Error("error on parshing data length", zap.String("line", line), zap.Error(err))
+			return nil, err
+		}
+
+		data := line[9 : 9+2*dataLength]
+
+		offset, err := strconv.ParseInt(line[3:7], 16, 64)
+		if err != nil {
+			zap.L().Error("error on parshing offset", zap.String("line", line), zap.Error(err))
+			return nil, err
+		}
+
 		recordType, err := strconv.ParseInt(line[7:9], 16, 64)
 		if err != nil {
+			zap.L().Error("error on parshing record type", zap.String("line", line), zap.Error(err))
 			return nil, err
 		}
 
@@ -221,28 +242,71 @@ func hexByteToLocalFormat(typeID, versionID uint16, hexByte []byte, blockSize in
 			continue
 		}
 
-		// get only data bytes and convert to bytes from string bytes
-		data := line[9 : len(line)-2]
-		dataBytes, err := hexENC.DecodeString(data)
-		if err != nil {
-			zap.L().Error("failed", zap.Any("data", data), zap.Error(err))
-			return nil, err
+		// 9 + dataLength + checksum length
+		expectedDataLength := int(9 + dataLength + 2)
+		if len(line) < expectedDataLength {
+			zap.L().Error("expected length mismatch", zap.String("line", line), zap.Int("expected length", expectedDataLength), zap.Int("actualLength", len(line)))
+			return nil, fmt.Errorf("actual data length missmatch with expected length")
 		}
-		// include it to our main slice
-		actualData = append(actualData, dataBytes...)
+
+		if (start == 0) && (end == 0) {
+			if offset%128 > 0 {
+				return nil, errors.New("error loading hex file - offset can't be devided by 128")
+			}
+			start = offset
+			end = offset
+		}
+
+		if offset < end {
+			return nil, errors.New("error loading hex file - offset lower than end")
+		}
+
+		for offset > end {
+			actualData = append(actualData, 255)
+			pos++
+			end++
+		}
+		for dataIndex := 0; dataIndex < int(dataLength); dataIndex++ {
+			intData, err := strconv.ParseInt(data[dataIndex*2:(dataIndex*2)+2], 16, 64)
+			if err != nil {
+				zap.L().Error("error on parshing data", zap.String("line", line), zap.Error(err))
+				return nil, err
+			}
+			actualData = append(actualData, byte(int(intData)))
+			pos++
+		}
+		end += dataLength
+
+		// get only data bytes and convert to bytes from string bytes
+		// data := line[9 : len(line)-2]
+		// dataBytes, err := hexENC.DecodeString(data)
+		// if err != nil {
+		// 	zap.L().Error("failed", zap.Any("data", data), zap.Error(err))
+		// 	return nil, err
+		// }
+		// // include it to our main slice
+		// actualData = append(actualData, dataBytes...)
 	}
+
 	// check the processed bytes length
 	if len(actualData) == 0 {
 		return nil, errors.New("no data available")
 	}
 
+	pad := end % 128 // ATMega328 has 64 words per page / 128 bytes per page
+	for i := 0; i < int(128-pad); i++ {
+		actualData = append(actualData, 255)
+		pos++
+		end++
+	}
+
 	// add padding if needed
 	// ATMega328 has 64 words per page / 128 bytes per page
-	paddingCount := 128 - (len(actualData) % 128)
-	for paddingCount > 0 {
-		actualData = append(actualData, 255) // 255 => 0xFF
-		paddingCount--
-	}
+	// 	paddingCount := 128 - (len(actualData) % 128)
+	// 	for paddingCount > 0 {
+	// 		actualData = append(actualData, 255) // 255 => 0xFF
+	// 		paddingCount--
+	// 	}
 
 	numberOfBlocks := uint16(len(actualData) / blockSize)
 
