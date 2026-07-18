@@ -13,6 +13,6 @@ elif [[ "${TARGET_BINARY}" == "handler" ]]; then # build handler binary
 elif [[ "${TARGET_BINARY}" == "client" ]]; then # build client binary
   GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -v -o myc -ldflags "$LD_FLAGS" cmd/client/main.go
 
-else # build server binary, exclude web. it is ok to keep web assets separately inside container
+else # build server binary (embedded banner when web_directory is empty)
   GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -v -tags=server -o mycontroller-server -ldflags "$LD_FLAGS" cmd/component/server/main.go
 fi

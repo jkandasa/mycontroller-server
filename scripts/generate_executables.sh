@@ -15,11 +15,6 @@ rm ${BUILD_DIR}/* -rf
 # create directories
 mkdir -p ${BUILD_DIR}/${BINARY_DIR}
 
-# generate UI builds
-if [ "${BUILD_UI}" = true ] ; then
-  ./scripts/build_web_console.sh
-fi
-
 # download dependencies
 go mod tidy
 
@@ -42,10 +37,8 @@ function package {
   # config file name
   local CONFIG_FILE=${COMPONENT_NAME}.yaml
 
-  # include web console
   if [ ${COMPONENT_NAME} = "server" ]; then
-    cp web-console/build ${PACKAGE_STAGING_DIR}/web_console -r
-    CONFIG_FILE="mycontroller.yaml"    
+    CONFIG_FILE="mycontroller.yaml"
   fi
 
   if [[ "${COMPONENT_NAME}" != "client" ]]; then
@@ -85,8 +78,6 @@ do
   package_handler="mycontroller-handler-${GOOS}-${GOARCH}"
   package_client="myc"
 
-  # to use embed web assets use tag "web"
-  # embed assets takes extra ~40 MiB when running
   env GOOS=${GOOS} GOARCH=${GOARCH} go build -tags=server -o ${BUILD_DIR}/${BINARY_DIR}/${package_server} -ldflags "$LD_FLAGS" cmd/component/server/main.go
   build_status=$?
   if [ $build_status -ne 0 ]; then

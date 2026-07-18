@@ -9,7 +9,8 @@ telemetry:
 jwt_secret:
 
 web:
-  web_directory: /ui
+  # web UI removed; leave empty to serve the built-in banner (use CLI tool `myc`)
+  web_directory: ""
   enable_profiling: false
   read_timeout: 60s
   http:
